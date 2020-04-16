@@ -129,7 +129,7 @@ configure_file (
 # Update the project README, to pull in new version #, etc.
 configure_file (
 	"${PROJECT_SOURCE_DIR}/templates/README.md.in"
-	"${CMAKE_CURRENT_LIST_DIR}/README.md"
+	"${PROJECT_SOURCE_DIR}/README.md"
 )
 
 configure_file (
@@ -147,9 +147,17 @@ endif ()
 # ============
 
 # Need to build parser.c via greg
+
+add_custom_target(
+	greg
+	COMMAND make
+	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/submodules/greg
+)
+
 add_custom_command (
 	OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/parser.c
 	COMMAND ${PROJECT_SOURCE_DIR}/submodules/greg/greg -o ${CMAKE_CURRENT_BINARY_DIR}/parser.c ${PROJECT_SOURCE_DIR}/src/parser.leg
+	DEPENDS greg
 )
 
 # src_files are the primary files, and will be included in doxygen documentation
@@ -296,6 +304,9 @@ if (APPLE)
 
 	# Xcode settings
 	set (XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH "NO")
+
+	# Eliminate warnings about Policy CMP0042
+	set (CMAKE_MACOSX_RPATH 1)
 endif (APPLE)
 
 # Windows Builds
@@ -373,6 +384,26 @@ SET_TARGET_PROPERTIES(libMultiMarkdown PROPERTIES PREFIX "")
 
 ADD_PUBLIC_HEADER(libMultiMarkdown src/libMultiMarkdown.h)
 
+# Create a shared library?
+if (DEFINED SHAREDBUILD)
+	add_library(libMultiMarkdownShared SHARED
+		${src_files}
+		${src_utility_files}
+		${header_files}
+		${header_utility_files}
+	)
+
+	# Shared libraries require position independent code
+	SET_TARGET_PROPERTIES(libMultiMarkdownShared PROPERTIES POSITION_INDEPENDENT_CODE 1)
+
+	# remove the extra "lib" from "liblibFOO"
+	SET_TARGET_PROPERTIES(libMultiMarkdownShared PROPERTIES PREFIX "")
+
+	# Rename library
+	SET_TARGET_PROPERTIES(libMultiMarkdownShared PROPERTIES OUTPUT_NAME libMultiMarkdown)
+
+endif (DEFINED SHAREDBUILD)
+
 # Create command-line app
 add_executable(multimarkdown
 	src/multimarkdown.c
@@ -395,19 +426,25 @@ target_link_libraries(multimarkdown libMultiMarkdown)
 
 # Create HTML version of README
 
+# Need an existing file to appease CPack check
+
+execute_process(COMMAND touch ${PROJECT_BINARY_DIR}/README.html
+)
+
+
 if (DEFINED IS_CROSSCOMPILING)
 	# Need to use installed MMD when cross compiling
 	add_custom_command(
 		TARGET multimarkdown
 		POST_BUILD
-		COMMAND multimarkdown -f ${CMAKE_CURRENT_LIST_DIR}/README.md > ${CMAKE_CURRENT_BINARY_DIR}/README.html
+		COMMAND multimarkdown -f ${PROJECT_SOURCE_DIR}/README.md > ${PROJECT_BINARY_DIR}/README.html
 	)
 else ()
 	# Use mmd binary we just built
 	add_custom_command(
 		TARGET multimarkdown
 		POST_BUILD
-		COMMAND $<TARGET_FILE:multimarkdown> -f ${CMAKE_CURRENT_LIST_DIR}/README.md > ${CMAKE_CURRENT_BINARY_DIR}/README.html
+		COMMAND $<TARGET_FILE:multimarkdown> -f ${PROJECT_SOURCE_DIR}/README.md > ${PROJECT_BINARY_DIR}/README.html
 	)
 endif()
 
@@ -430,7 +467,7 @@ install (FILES ${scripts}
 	PERMISSIONS OWNER_WRITE OWNER_READ OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
 )
 
-# install (FILES ${PROJECT_SOURCE_DIR}/LICENSE.txt ${CMAKE_CURRENT_BINARY_DIR}/README.html
+# install (FILES ${PROJECT_SOURCE_DIR}/LICENSE.txt ${PROJECT_CURRENT_BINARY_DIR}/README.html
 # 	DESTINATION notes
 # )
 
@@ -439,14 +476,36 @@ install (FILES ${scripts}
 
 # install (FILES ${public_header_files} DESTINATION local/include/libMultiMarkdown) 
 
+set (CPACK_COMPONENTS_ALL application scripts)
+
+# Install Shared Library?
+if (DEFINED SHAREDBUILD)
+	install (TARGETS libMultiMarkdownShared
+		ARCHIVE
+		LIBRARY
+		DESTINATION lib
+		COMPONENT sharedlib
+	)
+
+	install (FILES ${public_header_files}
+		DESTINATION include/multimarkdown
+		COMPONENT sharedlib
+	)
+
+	set (CPACK_COMPONENT_SHAREDLIB_DISPLAY_NAME "Shared Library")
+	set (CPACK_COMPONENT_SHAREDLIB_DESCRIPTION "MultiMarkdown shared library for use with third party software.")
+
+	set (CPACK_COMPONENTS_ALL application scripts sharedlib)
+
+	set (CPACK_COMPONENT_SHAREDLIB_GROUP "MultiMarkdown")
+endif (DEFINED SHAREDBUILD)
+
+
 set (CPACK_COMPONENT_SCRIPTS_DISPLAY_NAME "Convenience scripts")
 set (CPACK_COMPONENT_SCRIPTS_DESCRIPTION 
    "Install convenience scripts for common MultiMarkdown shortcuts, e.g. `mmd`, `mmd2tex`, etc.")
 
 include (InstallRequiredSystemLibraries)
-
-set (CPACK_COMPONENTS_ALL application scripts)
-
 
 set (CPACK_COMPONENT_APPLICATION_GROUP "MultiMarkdown")
 set (CPACK_COMPONENT_SCRIPTS_GROUP "MultiMarkdown")
@@ -461,8 +520,8 @@ set (CPACK_PACKAGE_VERSION_MAJOR "${My_Project_Version_Major}")
 set (CPACK_PACKAGE_VERSION_MINOR "${My_Project_Version_Minor}")
 set (CPACK_PACKAGE_VERSION_PATCH "My_Project_Version_Patch")
 
-set (CPACK_PACKAGE_DESCRIPTION_FILE "${CMAKE_CURRENT_BINARY_DIR}/README.html")
-set (CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_BINARY_DIR}/README.html")
+set (CPACK_PACKAGE_DESCRIPTION_FILE "${PROJECT_BINARY_DIR}/README.html")
+set (CPACK_RESOURCE_FILE_README "${PROJECT_BINARY_DIR}/README.html")
 set (CPACK_RESOURCE_FILE_LICENSE "${PROJECT_SOURCE_DIR}/LICENSE.txt")
 
 set (ZIP_NAME "")

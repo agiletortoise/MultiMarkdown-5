@@ -445,7 +445,7 @@ Emph = < EmphMatch >
 	{
 		yytext[strlen(yytext) - 1] = '\0';
 
-		$$ = markdown_chunk_to_node(&yytext[1], ((parser_data *)G->data)->extensions);
+		$$ = markdown_chunk_to_node(&yytext[1], ((parser_data *)G->data)->extensions | EXT_NO_METADATA);
 		if ($$ != NULL) {
 			$$->key = EMPH;
 		}
@@ -506,7 +506,7 @@ Strong = < StrongMatch >
 		{
 			yytext[strlen(yytext) - 2] = '\0';
 
-			$$ = markdown_chunk_to_node(&yytext[2], ((parser_data *)G->data)->extensions );
+			$$ = markdown_chunk_to_node(&yytext[2], ((parser_data *)G->data)->extensions | EXT_NO_METADATA);
 			if ($$ != NULL) {
 				$$->key = STRONG;
 			}
@@ -746,11 +746,14 @@ Label = &( '[' )
 	< BracketedText > 
 	{
 		yytext[strlen(yytext) - 1] = '\0';
-		$$ = markdown_chunk_to_node(&yytext[1], ((parser_data *)G->data)->extensions);
-		if ($$ == NULL) {
-			$$ = str("");
+
+		node * content = markdown_chunk_to_node(&yytext[1], ((parser_data *)G->data)->extensions | EXT_NO_METADATA);
+
+		if (content == NULL) {
+			$$ = list(LIST, NULL);
 		} else {
-			$$->key = LIST;		
+			$$ = content;
+			$$->key = LIST;
 		}
 	}
 
@@ -1477,12 +1480,12 @@ BracketedTextz = &('[' (!(Endline Endline) !']' .)* ']') BracketedText2
 
 BracketedText = &('[' (!(BlankLine BlankLine) !']' .)* ']') BracketedText2
 
-BracketedText2 = '[' ( ('\\' .) | (!'[' !']' .) | BracketedText2 )* ']'	# Matches text within [...], but allows for recursive brackets
+BracketedText2 = '[' ( ('\\' .) | (!'[' !']' !(BlankLine BlankLine) .) | BracketedText2 )* ']'	# Matches text within [...], but allows for recursive brackets
 
 TableCaption = b:StartList a:StartList (< BracketedText >
 	{
 		yytext[strlen(yytext) - 1] = '\0';
-		a = markdown_chunk_to_node(&yytext[1], ((parser_data *)G->data)->extensions);
+		a = markdown_chunk_to_node(&yytext[1], ((parser_data *)G->data)->extensions | EXT_NO_METADATA);
 	} )
 		( c:AutoLabel { b = c; b->key = TABLELABEL;})? Sp Newline
 		{
@@ -1819,8 +1822,13 @@ node * parse_markdown(const char * source, unsigned long extensions, int format)
 		while (yyparse_from(&g, yy_DocForCritic));
 		
 		if (extensions & EXT_CRITIC_REJECT) {
-			if ((extensions & EXT_CRITIC_ACCEPT) && (format == HTML_FORMAT))
-				critic_resolved = export_node_tree(((parser_data *)g.data)->result, CRITIC_HTML_HIGHLIGHT_FORMAT, extensions);
+			if ((extensions & EXT_CRITIC_ACCEPT)) {
+				if(format == HTML_FORMAT) {
+					critic_resolved = export_node_tree(((parser_data *)g.data)->result, CRITIC_HTML_HIGHLIGHT_FORMAT, extensions);
+				} else if (format == LATEX_FORMAT) {
+					critic_resolved = export_node_tree(((parser_data *)g.data)->result, CRITIC_LATEX_HIGHLIGHT_FORMAT, extensions);
+				}
+			}
 			else
 				critic_resolved = export_node_tree(((parser_data *)g.data)->result, CRITIC_REJECT_FORMAT, extensions);
 		} else {
